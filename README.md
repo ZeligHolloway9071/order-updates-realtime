@@ -1,6 +1,10 @@
 # Pushing order updates to a shopper's open tab
 
-I run a one-person SaaS. The order service already knows when checkout is paid, when warehouse hands parcel to carrier, when it lands. This repo is the glue: one Go binary turning those transitions into realtime events on a per-order channel. It mints the short-lived token the checkout page connects with.
+The order service already knows when a checkout is paid, when the warehouse
+hands the parcel to a carrier, and when it lands. This repo is the piece in
+between: one Go binary that turns each of those transitions into a realtime
+event on a per-order channel, and mints the short-lived token the checkout page
+connects with.
 
 ```
 $ export INFRAI_API_KEY=...
@@ -14,7 +18,7 @@ skipped: replay of shipped behind shipped
 order.delivered published; no open tab, send it by email too
 ```
 
-Infrai's one key covers realtime and the other calls. Two Infrai calls cross here, and the handoff is the interesting part.
+Two Infrai calls cross here, and the handoff is the interesting part.
 `realtime.token.issue` scopes a token to `channels: ["order.a-1001"]` for one
 `client_id`; `realtime.publish` writes to that same channel name from the
 server. Both sides call `orderfeed.Channel(orderID)` to build the string, so a
@@ -55,7 +59,7 @@ when the shopper closed the tab an hour ago.
 
 ## What it is not
 
-No persistence here. Restart the binary and the lifecycle starts over
+There is no persistence here: restart the binary and the lifecycle starts over
 from `checkout`. Wire `Advance` into whatever already emits your order events
 and drop `cmd/orderfeed/main.go`; it exists to show the sequence in one screen.
 The email fallback is a printed line, not an implementation.
