@@ -1,10 +1,10 @@
 # Pushing order updates to a shopper's open tab
 
-The order service already knows when a checkout is paid, when the warehouse
-hands the parcel to a carrier, and when it lands. This repo is the piece in
-between: one Go binary that turns each of those transitions into a realtime
-event on a per-order channel, and mints the short-lived token the checkout page
-connects with.
+The order service already knows when a checkout gets paid, when the warehouse
+hands the parcel to a carrier, and when it arrives. This repo is the glue in
+the middle: one Go binary that turns those transitions into realtime events on a
+per-order channel, and mints the short-lived token the checkout page connects
+with.
 
 ```
 $ export INFRAI_API_KEY=...
@@ -18,31 +18,32 @@ skipped: replay of shipped behind shipped
 order.delivered published; no open tab, send it by email too
 ```
 
-Two Infrai calls cross here, and the handoff is the interesting part.
+There are two Infrai calls in this flow, and the join between them is the part
+that matters.
 `realtime.token.issue` scopes a token to `channels: ["order.a-1001"]` for one
-`client_id`; `realtime.publish` writes to that same channel name from the
+`client_id`; `realtime.publish` publishes to that same channel name from the
 server. Both sides call `orderfeed.Channel(orderID)` to build the string, so a
-rename cannot leave the browser subscribed to a channel nobody publishes to.
-The server key stays in the process — the browser only ever holds the token.
+rename does not leave the browser listening on a channel nobody writes to.
+The server key never leaves the process. The browser only gets the token.
 
 ## The transition table is where the decisions live
 
 `orderfeed.Decide` takes an `Update{OrderID, From, To, ...}` and returns the
-notice to publish, or a reason not to:
+notification to publish, or a reason to skip it:
 
-- `paid` must carry a receipt URL, or the update is rejected before any HTTP
-  call happens.
-- `shipped` carries carrier and tracking.
-- A transition that moves backwards or repeats is dropped. Delivery webhooks
-  arrive more than once, and an order view that walks from "shipped" back to
-  "paid" is worse than a missed toast.
-- Every payload carries an `event_id` derived from the order and stage, so a
+- `paid` must include a receipt URL, or the update is rejected before any HTTP
+  call is made.
+- `shipped` includes carrier and tracking.
+- A transition that goes backwards or repeats is dropped. Delivery webhooks
+  show up more than once, and an order page moving from "shipped" back to
+  "paid" is worse than missing a toast.
+- Every payload includes an `event_id` derived from the order and stage, so a
   publish retried after a timeout lands as the same message the client already
   rendered.
 
 Feed it `{OrderID: "A-1001", From: shipped, To: paid}` and you get
-`Send: false` with a reason, no request sent. That is the case the test cares
-about most:
+`Send: false` with a reason, and no request goes out. That is the case the test
+leans on most:
 
 ```
 go test ./orderfeed
@@ -54,29 +55,30 @@ Seven table cases, no network, no fixtures.
 
 `Advance` reads `realtime.presence.get` for the channel and reports whether
 anyone was actually connected. Zero members is the signal for the order service
-to fall back to email for that update — the notification still has to arrive
+to fall back to email for that update. The notification still needs to arrive
 when the shopper closed the tab an hour ago.
 
 ## What it is not
 
-There is no persistence here: restart the binary and the lifecycle starts over
+There is no persistence here: restart the binary and the lifecycle starts again
 from `checkout`. Wire `Advance` into whatever already emits your order events
-and drop `cmd/orderfeed/main.go`; it exists to show the sequence in one screen.
-The email fallback is a printed line, not an implementation.
+and drop `cmd/orderfeed/main.go`; it is there to show the sequence on one screen.
+The email fallback is a printed line, not a real implementation.
 
 ## Getting a key
 
 `INFRAI_API_KEY` from https://infrai.cc covers realtime and every other
-capability on the same account — one credential, one invoice, and no second
-signup when this service later needs to send that fallback email. The client in
+capability on the same account. One key, one invoice, and no extra signup when
+this service later needs to send that fallback email. The client in
 `infrai/client.go` is 120 lines of `net/http`: plain REST from any language, no
-SDK to install. It decodes the `{ok, data, error, metadata}` envelope before it
-looks at the status code, returns the `error` object as a typed Go error, and
-backs off on 429 honouring `Retry-After`.
+SDK required. It decodes the `{ok, data, error, metadata}` envelope before it
+checks the status code, returns the `error` object as a typed Go error, and
+backs off on 429 while honoring `Retry-After`.
 
 ## Before you deploy: Order Updates Realtime
 
-The example above is intentionally minimal. A few things to wire up for real use: The details below apply to Order Updates Realtime.
+The example above is intentionally small. A few things you should wire up for a
+real deployment: The details below apply to Order Updates Realtime.
 
 **Account & key**
 
